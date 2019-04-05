@@ -1,6 +1,5 @@
-from sktime.experiments.orchestrator import Orchestrator
+from sktime.benchmarking import Orchestrator
 from sktime.model_selection import Single_Split
-import sktime
 from sktime.highlevel import Task, TSCStrategy
 from sktime.datasets import load_gunpoint
 from sktime.classifiers.ensemble import TimeSeriesForestClassifier
@@ -8,9 +7,8 @@ import pandas as pd
 
 from sktime.experiments.data import DataHolder
 
-from sktime.analyze_results import AnalyseResults
-from sktime.analyze_results.scores import ScoreAccuracy
-from sktime.experiments.data import DataLoader
+from sktime.benchmarking import AnalyseResults
+from sktime.benchmarking.metrics import ScoreAccuracy
 
 #from memory example
 train = load_gunpoint(split='TRAIN')
