@@ -47,6 +47,7 @@ class ScoreAccuracy(SKTimeScore):
             Should the predictions be rounded before claculating the accuracy score. This is useful when the accuracy score is used on outputs produced by regressors.
         """
         self._round_predictions = round_predictions
+
     def calculate(self, y_true, y_pred):
         """
         Main method for performing the calculations.
@@ -64,8 +65,6 @@ class ScoreAccuracy(SKTimeScore):
         float
             The accuracy of the prediction.
         """
-
-        
         if self._round_predictions is True:
             y_pred = np.rint(y_pred)
         return accuracy_score(y_true, y_pred)

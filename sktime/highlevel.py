@@ -25,26 +25,43 @@ class Task:
         The column header for the target variable to be predicted.
         If omitted, every column apart from target would be a feature.
     """
-    def __init__(self, case=None, data=None, target=None, features=None):
+    def __init__(self, case, target, features=None):
         # check if all necessary keyword arguments are present
-        if not(case and data and target):
-            raise ValueError("All three kerword arguments case, data and target should be supplied")
         self._case = case
         self._target = target
-        # by default every column apart from target is a feature
-        if features is None:
-            self._features = data.columns.drop(self._target)
-        else:
-            # set the user-supplied feature list as read-only
-            self._features = pd.Index(features)
+        self._features = features
 
-        # glean metadata from the dataset
-        self._meta = {"nrow": data.shape[0],
-                      "ncol": data.shape[1],
-                      "target_type": {target: type(i)
-                                      for i in data[self._target]},
-                      "feature_type": {col: {type(i) for i in data[col]}
-                                       for col in self._features}}
+        # Assigned in check_metadata
+        self._meta = None
+
+    def check_metadata(self, metadata):
+        """
+        Check consistency of task with data.
+
+        Parameters
+        ----------
+        metadata
+
+        Returns
+        -------
+
+        """
+        # by default every column apart from target is a feature
+        if metadata is not None:
+            if self.features is None:
+                self._features = metadata.columns.drop(self._target)
+            else:
+                # set the user-supplied feature list as read-only
+                self._features = pd.Index(self.features)
+
+            # glean metadata from the dataset
+            self._meta = {"nrow": metadata.shape[0],
+                          "ncol": metadata.shape[1],
+                          "target_type": {self.target: type(i)
+                                          for i in metadata[self._target]},
+                          "feature_type": {col: {type(i) for i in metadata[col]}
+                                           for col in self._features}}
+        return self
 
     @property
     def case(self):
@@ -94,7 +111,8 @@ class BaseStrategy:
         self._case = None
         self._task = None
         self._meta = {"tags": None}
-        self._name = estimator.__class__.__name__ #TODO: sets the name of the estimator. Not sure if this works for estimators other than scikit learn
+        self._name = estimator.__class__.__name__
+        #TODO: sets the name of the estimator. Not sure if this works for estimators other than scikit learn
 
     @property
     def case(self):
@@ -102,6 +120,7 @@ class BaseStrategy:
         exposes the private variable _case as read only
         """
         return self._case
+
     @property
     def name(self):
         return self._name
@@ -132,19 +151,26 @@ class BaseStrategy:
         """
         # check task compatibility with Strategy
         if self._case != task.case:
-            raise ValueError("Hash mismatch: the supplied data is\
-                             incompatible with the task")
+            raise ValueError("Hash mismatch: the supplied task type is\
+                             incompatible with the strategy type")
+
+        # check metadata
+        task.check_metadata(data)
+
         # link task
         self._task = task
+
         # fit the estimator
         try:
             X = data[self._task.features]
             y = data[self._task.target]
+
         except KeyError:
             raise ValueError("task <-> data mismatch. The necessary target/features\
                               are not available in the supplied data")
         # fit the estimator
         self._estimator.fit(X, y)
+        return self
 
     def predict(self, data):
         """Predict the targets for the test data

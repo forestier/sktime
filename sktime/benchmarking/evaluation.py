@@ -10,24 +10,16 @@ import numpy as np
 import pandas as pd
 
 
-class Evaluator(object):
-    """
-    Analyze results of machine learning experiments.
+class Evaluator:
 
-    Parameters
-    ----------
-    results: list
-        list of sktime result objects
-    """
+    def __init__(self, results):
 
-    def __init__(self, 
-                 results_list):
-
-        self._results_list = results_list
+        self.results = results
     
     def prediction_errors(self, metric):
         """
-        Calculates the average prediction error per estimator as well as the prediction error achieved by each estimator on individual datasets.
+        Calculates the average prediction error per estimator as well as the prediction error
+        achieved by each estimator on individual datasets.
 
         Parameters
         -----------
@@ -36,23 +28,14 @@ class Evaluator(object):
         Returns
         --------
         pickle of pandas DataFrame
-            ``estimator_avg_error`` represents the average error and standard deviation achieved by each estimator. ``estimator_avg_error_per_dataset`` represents the average error and standard deviation achieved by each estimator on each dataset.
+            ``estimator_avg_error`` represents the average error and standard deviation achieved
+            by each estimator. ``estimator_avg_error_per_dataset`` represents the average error
+            and standard deviation achieved by each estimator on each dataset.
         """
-        #load all predictions
-        losses = MetricCalculator(metric)
-        for res in self._results_list:
-
-            predictions = res.predictions
-            predictions = list(map(float, predictions))
-            y_test = res.true_labels
-            y_test = list(map(float, y_test))
-
-            losses.evaluate(predictions=predictions, 
-                            true_labels=y_test,
-                            dataset_name=res.dataset_name,
-                            strategy_name=res.strategy_name)
-        return losses.get_losses()
-
+        calculator = MetricCalculator(metric)
+        for strategy_name, dataset_name, idx, y_true, y_pred in self.results.load_results(train_or_test='test', fold=0):
+            calculator.evaluate(y_true, y_pred, dataset_name, strategy_name)
+        return calculator.get_losses()
 
     def average_and_std_error(self, scores_dict):
         """
@@ -76,9 +59,7 @@ class Evaluator(object):
         res_df = res_df.sort_values(['avg_score','std_error'], ascending=[1,1])
 
         return res_df.round(3)
-    
 
-    
     def plot_boxcharts(self, scores_dict):
         data = []
         labels = []
@@ -124,10 +105,6 @@ class Evaluator(object):
         mean_r.columns=['avg_rank']
         mean_r = mean_r.sort_values('avg_rank', ascending=ascending)
         return mean_r.round(1)
-
-
-
-   
 
     def t_test(self, strategy_dict):
         """
@@ -370,14 +347,14 @@ class Evaluator(object):
         return nemenyi.round(3)
 
 
-class MetricCalculator(object):
+class MetricCalculator:
     """
     Calculates prediction losses on test datasets achieved by the trained estimators. When the class is instantiated it creates a dictionary that stores the losses.
 
     Args:
         metric(`mlaut.benchmarking.scores` object): score function that will be used for the estimation. Must be `mlaut.benchmarking.scores` object.
         estimators(`array of mlaut estimators`): Array of estimators on which the results will be compared.
-        exact_match(Boolean): If `True` when predictions for all estimators in the estimators array is not available no evaluation is performed on the remaining estimators.
+        exact_match(Boolean): If `True` when y_pred for all estimators in the estimators array is not available no evaluation is performed on the remaining estimators.
     """
 
     def __init__(self, metric):
@@ -387,15 +364,15 @@ class MetricCalculator(object):
         self._losses_per_estimator = collections.defaultdict(list)
         self._losses_per_dataset_per_estimator = collections.defaultdict(list)
 
-    def evaluate(self, predictions, true_labels, dataset_name, strategy_name):
+    def evaluate(self, y_true, y_pred, dataset_name, strategy_name):
         """
         Calculates the loss metrics on the test sets.
 
         Parameters
         ----------
-        predictions: numpy array
+        y_pred: numpy array
             Predictions of trained estimators in the form
-        true_labels: numpy array
+        y_true: numpy array
             true labels of test dataset.
         dataset_name: string
             Name of the dataset
@@ -403,16 +380,18 @@ class MetricCalculator(object):
             Name of the strategy
         """
 
+        print(y_true.shape, y_pred.shape)
+
         # evaluates error per estimator
-        loss = self._metric.calculate(true_labels, predictions)
+        loss = self._metric.calculate(y_true, y_pred)
         if strategy_name in self._losses_per_estimator:
             self._losses_per_estimator[strategy_name].append(loss)
         else:
             self._losses_per_estimator[strategy_name] = [loss]
 
         # evaluate per dataset
-        avg_score, std_score = self._metric.calculate_per_dataset(y_true=true_labels,
-                                                                  y_pred=predictions)
+        avg_score, std_score = self._metric.calculate_per_dataset(y_true=y_true,
+                                                                  y_pred=y_pred)
 
         self._losses_per_dataset_per_estimator[dataset_name].append([strategy_name, avg_score, std_score])
 
