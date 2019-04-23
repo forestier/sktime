@@ -54,6 +54,11 @@ class BaseTask:
             raise KeyError()
         return self._metadata[key]
 
+    @property
+    def metadata(self):
+        # TODO if metadata is a mutable object itself, its contents may still be mutable
+        return self._metadata
+
     def set_metadata(self, metadata):
 
         if not isinstance(metadata, pd.DataFrame):
@@ -176,12 +181,13 @@ class BaseStrategy:
             returns the predictions
         """
         # check task compatibility with Strategy
-        if self._case != task.case:
+        if self._case != task._case:
             raise ValueError("Hash mismatch: the supplied task type is\
                              incompatible with the strategy type")
 
         # check metadata
-        task.check_metadata(data)
+        if task.metadata is None:
+            task.set_metadata(data)
 
         # link task
         # TODO replace by task-strategy compatibility lookup registry
@@ -243,6 +249,9 @@ class BaseStrategy:
         estimator_name = self._estimator.__class__.__name__
         return '%s(%s(%s))' % (class_name, estimator_name,
                                _pprint(self.get_params(deep=False), offset=len(class_name), ),)
+
+    def save(self, filepath):
+        pass
 
 
 class TSCStrategy(BaseStrategy):

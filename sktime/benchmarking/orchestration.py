@@ -1,59 +1,53 @@
+"""Classes for orchestrating and evaluating benchmarking experiments comparing the predictive performance of multiple
+prediction strategies on multiple datasets.
+"""
+
 from sktime.utils.load_data import load_from_tsfile_to_dataframe
 from sklearn.model_selection import KFold
 from sklearn.utils import shuffle
 import pandas as pd
+import numpy as np
 import os
 
 __all__ = ["Orchestrator", "Data", "Results"]
 
 # TODO add logging for more detailed feedback
-# TODO add separate predict methods for already fitted and saved strategies
-# TODO take fit/predict timings
+# TODO add separate predict method to Orchestrator for already fitted and saved strategies
+# TODO take and save fit/predict timings
 # TODO optionally skip strategies if fitted strategies/results already exist
-# TODO integrate data loading functions with dataset submodule
-# TODO expand supported backends for data/results classes, including in-memory benchmarking
-# TODO let input/output (Data/Results) objects take care of loading data/results and writing results
-# TODO make sure strategy names are unique to prevent overwriting of existing results when e.g.
-#  comparing different param settings of same strategy
+# TODO expand supported backends for data/results classes, including in-memory benchmarking,
+#  making the _load_data() and _save_results() methods abstract
+# TODO sklearn CV iterators return arrays, not pd DataFrames, pass dataframe index instead of data?
 
 
 class Orchestrator:
     """Orchestrator for benchmarking one or more strategies on one or more datasets.
     """
     def __init__(self,
-                 data=None,
-                 tasks=None,
-                 strategies=None,
-                 strategy_names=None,
+                 data,
+                 tasks,
+                 strategies,
                  cv=None,
-                 results_dir='results'):
+                 results_dir=None):
 
+        # TODO add input checks for tasks and data
         if len(tasks) != len(data.names):
             raise ValueError('Inconsistent number of datasets and tasks, '
                              'there must be one task for each dataset')
-
-        if len(strategies) != len(strategy_names):
-            raise ValueError()
-
         self.data = data
         self.tasks = tasks
-        self.strategies = strategies
-        self.strategy_names = strategy_names
 
-        self.results = Results(
-            results_dir=results_dir,
-            dataset_names=data.names,
-            strategy_names=strategy_names
-        )
+        self._validate_strategies(strategies)
+        self.strategies = strategies
 
         # use predefined train/test splits
         if cv == 'presplit':
             if self.data.train_test_exists:
-                self.cv = _PredefinedSplit()
+                self.cv = PredefinedSplit()
                 self.data._use_presplit = True
             else:
                 # raise error if cv is predefined but no predefined splits exist
-                raise ValueError('predefined cv specified but no predefined train/test split exist')
+                raise ValueError('Predefined cv specified, but no predefined train/test splits exist')
 
         else:
             # set default
@@ -62,44 +56,80 @@ class Orchestrator:
             else:
                 self.cv = cv
 
-    def fit_predict(self, verbose=True):
-        """Main method for benchmarking. Iterates though all strategies and through all tasks.
+        # TODO allow users to pass results object for whatever backend they prefer
+        self.results = Results(results_dir=results_dir,
+                               dataset_names=data.names,
+                               strategies=self.strategies)
+
+    @staticmethod
+    def _validate_strategies(strategies):
+        """Helper function to check validity of passed name-strategy tuples"""
+        names, strategies = zip(*strategies)
+
+        # TODO add checks for strategies: all strategies of same type (i.e classifiers or regressors)
+
+        # Unique names
+        if len(set(names)) != len(names):
+            raise ValueError('Names provided are not unique: '
+                             '{0!r}'.format(list(names)))
+
+        # Conflicts with constructor arguments
+        # TODO add checks for conflicts with strategy and passed estimator
+        # invalid_names = set(names).intersection(self.get_params(deep=False))
+        # if invalid_names:
+        #     raise ValueError('Estimator names conflict with constructor '
+        #                      'arguments: {0!r}'.format(sorted(invalid_names)))
+
+        # Conflicts with double underscore convention
+        invalid_names = [name for name in names if '__' in name]
+        if invalid_names:
+            raise ValueError('Estimator names must not contain __: got '
+                             '{0!r}'.format(invalid_names))
+
+    def run(self, overwrite_fitted_strategies=False, verbose=True):
+        """Main method for benchmarking which iterates though all datasets and strategies.
         """
 
         for task, (dataset_name, dataset) in zip(self.tasks, self.data.load()):
 
             if verbose:
+                # TODO improve user feedback
                 print(f'Running strategies on {dataset_name}')
 
-            for strategy_name, strategy in zip(self.strategy_names, self.strategies):
-
+            for strategy_name, strategy in self.strategies:
                 # fit and predict strategy
-                for fold, (train, test) in enumerate(self.cv.split(dataset)):
-
-                        # fit
+                for i, (train, test) in enumerate(self.cv.split(dataset)):
                         strategy.fit(task, train)
 
-                        # predict
+                        if overwrite_fitted_strategies:
+                            self.results.save_fitted_strategy()
+
                         y_pred = strategy.predict(test)
 
                         # save results
                         y_test = test[task.target]
-                        self.results.save_results(
-                            y_test, y_pred, test.index,
+                        self.results.save_predictions(
+                            y_test,
+                            y_pred,
+                            test.index,
                             dataset_name=dataset_name,
                             strategy_name=strategy_name,
                             train_or_test='test',
-                            fold=fold)
+                            fold=i)
 
         return self.results
 
+    def run_from_fitted_strategies(self):
+        # self.strategy = self.results.load_fitted_strategy()
+        raise NotImplementedError()
 
 
 class Data:
-    """Class for accessing data in orchestration.
+    """Class for loading data during benchmarking.
     """
     def __init__(self, datadir=None, names=None, train_test_exists=False):
 
+        # TODO input checks
         # Input checks.
         # if isinstance(datasets, list) and all(isinstance(dataset, pd.DataFrame) for dataset in datasets):
         #     self.data = datasets
@@ -142,16 +172,17 @@ class Data:
                     # load predefined train/test files
                     train = self._load_dataset(path, 'TRAIN')
                     test = self._load_dataset(path, 'TEST')
-                    data = (train, test)
+                    data = pd.concat([train, test], axis=0, keys=['train', 'test']).reset_index(level=1, drop=True)
 
                 else:
                     # concatenate into a single dataframe
                     data = self._load_dataset(path, "ALL")
-                    data = shuffle(data)  # TODO necessary to reshuffle data?
+                    # data = shuffle(data)  # TODO necessary to reshuffle data?
 
             else:
                 # load single file
-                raise NotImplemented
+                # TODO
+                raise NotImplementedError()
 
             yield name, data
 
@@ -177,42 +208,53 @@ class Data:
         X['class_val'] = pd.Series(y)
         return X
 
+    def save(self, dataset):
+        """Method for storing datasets in some database or specific format
+        """
+        raise NotImplementedError()
+
 
 class Results:
-    """Class for accessing benchmarking results.
+    """Results object for storing and accessing benchmarking results.
     """
-    def __init__(self,
-                 results_dir=None,
-                 dataset_names=None,
-                 strategy_names=None):
+    def __init__(self, results_dir=None, dataset_names=None, strategies=None):
 
-        self.results_dir = results_dir
+        self.results_dir = os.path.join(os.getcwd(), 'results') if results_dir is None else results_dir
         self.dataset_names = dataset_names
+
+        strategy_names, _ = zip(*strategies)
         self.strategy_names = strategy_names
 
-    def save_results(self,
-                     y_true,
-                     y_pred,
-                     index,
-                     strategy_name=None,
-                     dataset_name=None,
-                     train_or_test=None,
-                     fold=None):
+    def save_predictions(self, y_true, y_pred, index, strategy_name=None, dataset_name=None, train_or_test=None,
+                         fold=None):
 
-        path = os.path.join(self.results_dir, strategy_name, dataset_name)
-        if not os.path.exists(path):
-            # recursively create directory including intermediate-level folders
-            os.makedirs(path)
+        filedir = self._make_dir(strategy_name, dataset_name)
+        filename = train_or_test + str(fold) + '.csv'
 
         results = pd.DataFrame([index, y_true, y_pred])
-        file = train_or_test + str(fold) + '.csv'
-        results.to_csv(os.path.join(path, file), index=False, header=False)
+        results.to_csv(os.path.join(filedir, filename), index=False, header=False)
 
-    def load_results(self, train_or_test='test', fold=0):
+    def load_predictions(self, train_or_test='test', fold=0):
         """Load saved results"""
 
         # load from hard-drive directory
         return self._load_from_dir(train_or_test, fold)
+
+    def save_fitted_strategy(self, strategy, strategy_name=None, dataset_name=None, fold=None):
+        filedir = self._make_dir(strategy_name, dataset_name)
+        filename = strategy_name + str(fold)
+        strategy.save(os.path.join(filedir, filename))
+
+    def load_fitted_strategy(self, filepath):
+        raise NotImplementedError()
+
+    def _make_dir(self, strategy_name, dataset_name):
+        """Helper function to create file directories"""
+        filedir = os.path.join(self.results_dir, strategy_name, dataset_name)
+        if not os.path.exists(filedir):
+            # recursively create directory including intermediate-level folders
+            os.makedirs(filedir)
+        return filedir
 
     def _load_from_dir(self, train_or_test, fold):
         """Helper function for loading results"""
@@ -230,22 +272,23 @@ class Results:
 
                 yield strategy_name, dataset_name, idx, y_true, y_pred
 
-    def load_fitted_strategies(self):
-        pass
 
-
-class _PredefinedSplit:
+class PredefinedSplit:
     """
     Helper class for iterating over predefined splits in orchestration.
     """
-    def __init__(self):
-        pass
+    def __init__(self, check_input=True):
+        self.check_input = check_input
 
-    @staticmethod
-    def split(data):
-        if isinstance(data, tuple):
-            train, test = data
-        else:
-            raise ValueError()
+    def split(self, data):
+        # Input checks.
+        if self.check_input:
+            if not isinstance(data, pd.DataFrame):
+                raise ValueError(f'Data must be pandas dataframe, but found {type(data)}')
+            if not np.all(data.index.unique().isin(['train', 'test'])):
+                raise ValueError('Train-test split not properly defined in index of passed pandas dataframe')
+
+        train = data.loc['train'].reset_index(drop=True)
+        test = data.loc['test'].reset_index(drop=True)
         yield train, test
 
