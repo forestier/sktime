@@ -102,7 +102,10 @@ class Orchestrator:
                         strategy.fit(task, train)
 
                         if overwrite_fitted_strategies:
-                            self.results.save_fitted_strategy()
+                            self.results.save_fitted_strategy(strategy,
+                                                              strategy_name=strategy_name,
+                                                              dataset_name=dataset_name,
+                                                              fold=i)
 
                         y_pred = strategy.predict(test)
 
