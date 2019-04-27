@@ -17,7 +17,6 @@ __all__ = ["Orchestrator", "Data", "Results"]
 # TODO optionally skip strategies if fitted strategies/results already exist
 # TODO expand supported backends for data/results classes, including in-memory benchmarking,
 #  making the _load_data() and _save_results() methods abstract
-# TODO sklearn CV iterators return arrays, not pd DataFrames, pass dataframe index instead of data?
 
 
 class Orchestrator:
