@@ -5,6 +5,9 @@ import pandas as pd
 import numpy as np
 from sklearn.base import BaseEstimator
 from sklearn.base import _pprint
+from sklearn.utils.validation import check_is_fitted
+from joblib import dump
+from joblib import load
 
 __all__ = ['TSCTask', 'ForecastingTask', 'TSCStrategy', 'TSRStrategy']
 
@@ -209,6 +212,7 @@ class BaseStrategy:
 
         # fit the estimator
         self._estimator.fit(X, y)
+        self._is_fitted = True
         return self
 
     def predict(self, data):
@@ -251,7 +255,26 @@ class BaseStrategy:
                                _pprint(self.get_params(deep=False), offset=len(class_name), ),)
 
     def save(self, filepath):
-        pass
+        """Save estimator"""
+        check_is_fitted(self, '_is_fitted')
+
+        # check if estimator has save method
+        # TODO how to load saved estimator and reconstruct strategy around it?
+        if hasattr(self._estimator, 'save'):
+            self._estimator.save(filepath)
+
+        else:
+            # otherwise use joblib's dump (more efficient than pickle for large arrays)
+            dump(self, filepath + '.joblib')
+
+    def load(self, filepath):
+        """Load saved (fitted) estimator"""
+        if hasattr(self._estimator, 'load'):
+            return self._estimator.load(filepath)
+
+        else:
+            # otherwise use joblib's dump (more efficient than pickle for large arrays)
+            return load(self, filepath + '.joblib')
 
 
 class TSCStrategy(BaseStrategy):

@@ -13,7 +13,6 @@ import pandas as pd
 class Evaluator:
 
     def __init__(self, results):
-
         self.results = results
     
     def prediction_errors(self, metric):
@@ -33,7 +32,8 @@ class Evaluator:
             and standard deviation achieved by each estimator on each dataset.
         """
         calculator = MetricCalculator(metric)
-        for strategy_name, dataset_name, idx, y_true, y_pred in self.results.load_results(train_or_test='test', fold=0):
+        for strategy_name, dataset_name, idx, y_true, y_pred in self.results.load_predictions(train_or_test='test',
+                                                                                              fold=0):
             calculator.evaluate(y_true, y_pred, dataset_name, strategy_name)
         return calculator.get_losses()
 
