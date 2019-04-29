@@ -10,6 +10,9 @@ from sklearn.metrics import make_scorer, mean_squared_error, accuracy_score
 import pandas as pd
 import numpy as np
 
+__all__ = ["GridSearchCV", "PresplitFilesCV"]
+__author__ = ["Sajay Ganesh", "Markus Löning"]
+
 
 class GridSearchCV(skGSCV):
     """Exhaustive search over specified parameter values for an estimator.
